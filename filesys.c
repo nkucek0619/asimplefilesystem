@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+// Option L: List files
 void listFiles() {
 		
 	int i, j;
@@ -74,33 +75,59 @@ void listFiles() {
 	fclose(floppy);
 }
 
+// Option P: Print file
+void printFile(FILE* floppy, char sector, char size) {
+
+	char* buffer[12288];
+	int temp = 0, count = 0;
+
+	int fileFound = fseek(floppy, sector, SEEK_SET);
+
+	//printf("%c", fileFound);
+	//printf("\n");
+
+	/*if(fileFound!=0) {
+		printf("file not found\n");
+		return;
+	}
+	else if (fileFound==0) {
+		printf("executable file is not printable");
+		return;
+	}*/
+
+	while((temp = fgetc(floppy)) != EOF) {
+		// display read character
+		printf("%c", temp);
+	}
+
+	while(buffer[count] != '0') {
+		printf("%s", buffer[count]);
+		if(count<0 && count%30==0) printf("\n");
+		count++;
+	}
+	return;
+}
+
+// Option M: Create and store a text file
+void createFile() {
+
+}
+
+// Option D: Delete file
+void deleteFile() {
+
+}
+
 // function prototypes
 void listFiles();
-void printFile();
+void printFile(FILE*, char, char);
 void createFile();
 void deleteFile();
 
 int main(int argc, char* argv[]) {
 
-	int i, j, size, noSecs, startPos;
-	int switchArgs;
-
-	// if more than two arguments are in input, call the proper function
-	while((switchArgs = getopt(argc, argv, "LPMD")) != -1) {
-		switch(switchArgs) {
-			case 'L':
-				listFiles();
-				return 0;
-			case 'P':
-				return 0;
-			case 'M':
-				return 0;
-			case 'D':
-				return 0;
-			default:
-				break;
-		}
-	}
+	int i, j, size, noSecs, startPos, switchArgs;
+	// char* tempString = argv[2];
 
 	//open the floppy image
 	FILE* floppy;
@@ -115,13 +142,37 @@ int main(int argc, char* argv[]) {
 	char map[512];
 	fseek(floppy,512*256,SEEK_SET);
 	for(i=0; i<512; i++)
-		map[i]=fgetc(floppy);
+	map[i]=fgetc(floppy);
 
 	//load the directory from sector 257
 	char dir[512];
 	fseek(floppy,512*257,SEEK_SET);
 	for (i=0; i<512; i++)
-		dir[i]=fgetc(floppy);
+	dir[i]=fgetc(floppy);
+
+	// if more than two arguments are in input, call the proper function
+	// commands are in the following format:
+	// ./filesys -D filename delete the named file from the disk
+    // ./filesys -L list the files on the disk
+    // ./filesys -M filename create a text file and store it to disk
+    // ./filesys -P filename read the named file and print it to screen
+
+	while((switchArgs = getopt(argc, argv, "LPMD")) != -1) {
+		switch(switchArgs) {
+			case 'L':
+				listFiles();
+				return 0;
+			case 'P':
+			    printFile(floppy, noSecs, size);
+				return 0;
+			case 'M':
+				return 0;
+			case 'D':
+				return 0;
+			default:
+				break;
+		}
+	}
 
     //print disk map
 	printf("Disk usage map:\n");
