@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 // Option L: List files
 void listFiles() {
@@ -40,7 +41,7 @@ void listFiles() {
 	if (floppy==0)
 	{
 		printf("floppya.img not found\n");
-		return;
+		exit(0);
 	}
 
 	//load the directory from sector 257
@@ -76,53 +77,188 @@ void listFiles() {
 }
 
 // Option P: Print file
-void printFile(FILE* floppy, char sector, char size) {
+void printFile(char* f) {
 
-	char* buffer[12288];
-	int temp = 0, count = 0;
+	int i;
 
-	int fileFound = fseek(floppy, sector, SEEK_SET);
-
-	//printf("%c", fileFound);
-	//printf("\n");
-
-	/*if(fileFound!=0) {
-		printf("file not found\n");
-		return;
-	}
-	else if (fileFound==0) {
-		printf("executable file is not printable");
-		return;
-	}*/
-
-	while((temp = fgetc(floppy)) != EOF) {
-		// display read character
-		printf("%c", temp);
+	//open the floppy image
+	FILE* floppy;
+	floppy=fopen("floppya.img","r+");
+	if (floppy==0)
+	{
+		printf("floppya.img not found\n");
+		exit(0);
 	}
 
-	while(buffer[count] != '0') {
-		printf("%s", buffer[count]);
-		if(count<0 && count%30==0) printf("\n");
-		count++;
+	//load the directory from sector 257
+	char dir[512];
+	fseek(floppy,512*257,SEEK_SET);
+	for (i=0; i<512; i++)
+	dir[i]=fgetc(floppy);
+
+	int found = 0;
+	i = 0;
+	while(i < 16*dir[i] && found == 0) {
+		char* temp;
+		temp = &dir[i]; // temp is set to address of directory
+
+		// if the temporary variable and filename are equal, and the character at location 9 is a t,
+		// then the file is found
+		if(strcmp(temp, f) == 0) { 
+			found = 1;
+			if(dir[i+8] == 't' || dir[i+8] == 'T') {
+				printf("file found successfully\n");
+				char buffer [12288];
+				fseek(floppy, 512*dir[i+9], SEEK_SET);
+				for(i=0; i<512; i++) {
+					buffer[i] = fgetc(floppy);
+					if(buffer[i] == 0) break;
+					// print file contents to the screen
+					printf("%c", buffer[i]);
+				}
+			}
+			else {
+				printf("executable file is not printable\n");
+			}
+		}
+		i = i+16;
 	}
-	return;
+	if(found == 0) printf("file not found\n");
+
+	fclose(floppy);
 }
 
 // Option M: Create and store a text file
-void createFile() {
+void createFile(char* f) {
 
+	int i, j;
+	
+	//open the floppy image
+	FILE* floppy;
+	floppy=fopen("floppya.img","r+");
+	if (floppy==0)
+	{
+		printf("floppya.img not found\n");
+		exit(0);
+	}
+
+	//load the disk map from sector 256
+	char map[512];
+	fseek(floppy,512*256,SEEK_SET);
+	for(i=0; i<512; i++)
+	map[i]=fgetc(floppy);
+
+	//load the directory from sector 257
+	char dir[512];
+	fseek(floppy,512*257,SEEK_SET);
+	for (i=0; i<512; i++)
+	dir[i]=fgetc(floppy);
+
+	printf("Test message 1\n");
+
+	char str[512];
+	for (int k = 0; k < 512; k++) { 
+		if (f[k] == 0) { 
+			str[k] = 0;
+		} else {
+			str[k] = f[k];
+		}
+	}
+
+	int freeDirectory = 0; 
+	int foundFreeDirectory = 0;
+
+    for (i = 0; i < 512; i = 16+i) {
+		if (foundFreeDirectory != 1 && dir[i] == 0) {
+    		freeDirectory = i;
+    		foundFreeDirectory = 1;
+    	}	else if (strcmp(&dir[i], str) == 0) { 
+			printf("\nduplicate or invalid filename\n");
+    		freeDirectory = -1;
+    		break;
+    	}
+	}
+	
+	int foundFreeSector = 0;
+
+	for(i = 0; i < 512; i++) {
+		if(map[i] == 0) {
+			foundFreeSector = 1;
+			break;
+		}
+	}
+
+	printf("%d", i);
+
+	if(freeDirectory > 0 && foundFreeSector == 1) {
+		for(j = 0; j < 8; j++) {
+			if(j < strlen(str)) {
+				dir[freeDirectory+j] = str[j];
+			} else {
+				dir[freeDirectory] = 0;
+			}
+		}
+
+		dir[freeDirectory+8] = 't';
+		dir[freeDirectory+9] = freeDirectory;
+
+		fseek(floppy, 512*dir[freeDirectory+9], SEEK_SET);
+		for(i = 0; i < strlen(str); i++) {
+			fputc(str[i], floppy);
+		}
+
+		int flag = 0;
+		for(int k = 0; k < 512; k++) {
+			if(map[k] == 0 && flag == 0) {
+				map[k] = -1;
+				dir[freeDirectory+9] = k;
+				dir[freeDirectory+10] = 1;
+				flag = 1;
+				break;
+			}
+		}
+
+		//write the map and directory back to the floppy image
+    	fseek(floppy,512*256,SEEK_SET);
+    	for (i=0; i<512; i++) fputc(map[i],floppy);
+
+    	fseek(floppy,512*257,SEEK_SET);
+    	for (i=0; i<512; i++) fputc(dir[i],floppy);
+	}
+
+	fclose(floppy);
 }
 
 // Option D: Delete file
-void deleteFile() {
+void deleteFile(char* f) {
 
+	int i;
+	
+	//open the floppy image
+	FILE* floppy;
+	floppy=fopen("floppya.img","r+");
+	if (floppy==0)
+	{
+		printf("floppya.img not found\n");
+		exit(0);
+	}
+
+	//load the directory from sector 257
+	char dir[512];
+	fseek(floppy,512*257,SEEK_SET);
+	for (i=0; i<512; i++)
+	dir[i]=fgetc(floppy);
+
+
+
+	fclose(floppy);
 }
 
 // function prototypes
 void listFiles();
-void printFile(FILE*, char, char);
-void createFile();
-void deleteFile();
+void printFile(char*);
+void createFile(char*);
+void deleteFile(char*);
 
 int main(int argc, char* argv[]) {
 
@@ -163,11 +299,13 @@ int main(int argc, char* argv[]) {
 				listFiles();
 				return 0;
 			case 'P':
-			    printFile(floppy, noSecs, size);
+			    printFile(argv[2]);
 				return 0;
 			case 'M':
+				createFile(argv[2]);
 				return 0;
 			case 'D':
+				deleteFile(argv[2]);
 				return 0;
 			default:
 				break;
