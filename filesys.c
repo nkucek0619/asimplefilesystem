@@ -123,7 +123,7 @@ void printFile(char* f) {
 		}
 		i = i+16;
 	}
-	if(found == 0) printf("file not found\n");
+	if(found == 0) printf("file not found or is empty\n");
 
 	fclose(floppy);
 }
@@ -131,7 +131,7 @@ void printFile(char* f) {
 // Option M: Create and store a text file
 void createFile(char* f) {
 
-	int i, j;
+	int i, j, fd = 0, ffd = 0, ffs = 0;
 	
 	//open the floppy image
 	FILE* floppy;
@@ -154,8 +154,7 @@ void createFile(char* f) {
 	for (i=0; i<512; i++)
 	dir[i]=fgetc(floppy);
 
-	printf("Test message 1\n");
-
+	// copy file name into c-string
 	char str[512];
 	for (int k = 0; k < 512; k++) { 
 		if (f[k] == 0) { 
@@ -165,65 +164,68 @@ void createFile(char* f) {
 		}
 	}
 
-	int freeDirectory = 0; 
-	int foundFreeDirectory = 0;
-
-    for (i = 0; i < 512; i = 16+i) {
-		if (foundFreeDirectory != 1 && dir[i] == 0) {
-    		freeDirectory = i;
-    		foundFreeDirectory = 1;
+	// loop through each file entry in the directory using 16-byte iterations
+	// until a free space is found
+    for (i = 0; i < 512; i+=16) {
+		if (ffd != 1 && dir[i] == 0) {
+    		fd = i;
+    		ffd = 1;
+			// file already exists, or the name is invalid
     	}	else if (strcmp(&dir[i], str) == 0) { 
-			printf("\nduplicate or invalid filename\n");
-    		freeDirectory = -1;
+			printf("duplicate or invalid filename\n");
+    		fd = -1;
     		break;
     	}
 	}
-	
-	int foundFreeSector = 0;
 
+	// if any sector in the map is set equal to 0, it is free
 	for(i = 0; i < 512; i++) {
 		if(map[i] == 0) {
-			foundFreeSector = 1;
+			ffs = 1;
 			break;
 		}
 	}
 
-	printf("%d", i);
-
-	if(freeDirectory > 0 && foundFreeSector == 1) {
+	// if there is free space in the directory and free space in the map,
+	// insert the new file there
+	if(fd > 0 && ffs == 1) {
 		for(j = 0; j < 8; j++) {
 			if(j < strlen(str)) {
-				dir[freeDirectory+j] = str[j];
+				dir[fd+j] = str[j];
 			} else {
-				dir[freeDirectory] = 0;
-			}
+				dir[fd] = 0;
 		}
+	}
 
-		dir[freeDirectory+8] = 't';
-		dir[freeDirectory+9] = freeDirectory;
+	dir[fd+8] = 't';
+	dir[fd+9] = fd;
 
-		fseek(floppy, 512*dir[freeDirectory+9], SEEK_SET);
-		for(i = 0; i < strlen(str); i++) {
-			fputc(str[i], floppy);
+	// use floppy to point and write to the free space in the directory for the file type
+	fseek(floppy, 512*dir[fd+9], SEEK_SET);
+	for(i = 0; i < strlen(str); i++) {
+		fputc(str[i], floppy);
+	}
+
+	// if a sector is free, set it to -1 (0xff)
+	int flag = 0;
+	for(int k = 0; k < 512; k++) {
+		if(map[k] == 0 && flag == 0) {
+			map[k] = -1;
+			dir[fd+9] = k;
+			dir[fd+10] = 1;
+			flag = 1;
+			break;
 		}
+	}
+	
+	printf("file created successfully\n");
 
-		int flag = 0;
-		for(int k = 0; k < 512; k++) {
-			if(map[k] == 0 && flag == 0) {
-				map[k] = -1;
-				dir[freeDirectory+9] = k;
-				dir[freeDirectory+10] = 1;
-				flag = 1;
-				break;
-			}
-		}
+	//write the map and directory back to the floppy image
+	fseek(floppy,512*256,SEEK_SET);
+	for (i=0; i<512; i++) fputc(map[i],floppy);
 
-		//write the map and directory back to the floppy image
-    	fseek(floppy,512*256,SEEK_SET);
-    	for (i=0; i<512; i++) fputc(map[i],floppy);
-
-    	fseek(floppy,512*257,SEEK_SET);
-    	for (i=0; i<512; i++) fputc(dir[i],floppy);
+    fseek(floppy,512*257,SEEK_SET);
+    for (i=0; i<512; i++) fputc(dir[i],floppy);
 	}
 
 	fclose(floppy);
@@ -232,7 +234,7 @@ void createFile(char* f) {
 // Option D: Delete file
 void deleteFile(char* f) {
 
-	int i;
+	int i, j, occupied = 0, fd = 0, fs = 0;
 	
 	//open the floppy image
 	FILE* floppy;
@@ -243,13 +245,82 @@ void deleteFile(char* f) {
 		exit(0);
 	}
 
+	//load the disk map from sector 256
+	char map[512];
+	fseek(floppy,512*256,SEEK_SET);
+	for(i=0; i<512; i++)
+	map[i]=fgetc(floppy);
+
 	//load the directory from sector 257
 	char dir[512];
 	fseek(floppy,512*257,SEEK_SET);
 	for (i=0; i<512; i++)
 	dir[i]=fgetc(floppy);
 
+	// copy file name into c-string
+	char str[512];
+	for (int k = 0; k < 512; k++) { 
+		if (f[k] == 0) { 
+			str[k] = 0;
+		} else {
+			str[k] = f[k];
+		}
+	}
 
+	// loop through each file entry in the directory using 16-byte iterations
+	// until the file is found
+    for (i = 0; i < 512; i+=16) {
+		if (strcmp(&dir[i], str) == 0) {
+    		occupied = i;
+    		fd = 1;
+			// file does not exist, or is an invalid name
+    	}	else if (fd != 1 && dir[i] == 0) { 
+			printf("file not found\n");
+    		occupied = -1;
+    		break;
+    	}
+	}
+
+	// if any sector in the map is set equal to -1, it is occupied
+	for(i = 0; i < 512; i++) {
+		if(map[i] == -1) {
+			fs = 1;
+			break;
+		}
+	}
+
+	// if there is occupied space in the directory and non-zero values in the map,
+	// set each file bit to 0
+		for(j = 0; j < 8; j++) {
+			if(j < strlen(str)) 
+				dir[occupied+j] = 0;
+		}
+
+	// use floppy to point and set each bit equal to 0 for the occupied space in the directory for the file type
+	fseek(floppy, 512*dir[occupied+8], SEEK_SET);
+	for(i = 0; i < strlen(str); i++) {
+		fputc(0, floppy);
+	}
+
+	// set all map bits back to 0
+	int flag = 0;
+	for(int k = 0; k < 512; k++) {
+		if(map[k] == -1 && flag == 0) {
+			map[k] = 0;
+			dir[occupied+8] = 0;
+			dir[occupied+9] = 0;
+			dir[occupied+10] = 0;
+			flag = 1;
+			break;
+		}
+	}
+
+	//write the map and directory back to the floppy image
+    fseek(floppy,512*256,SEEK_SET);
+    for (i=0; i<512; i++) fputc(map[i],floppy);
+
+    fseek(floppy,512*257,SEEK_SET);
+    for (i=0; i<512; i++) fputc(dir[i],floppy);
 
 	fclose(floppy);
 }
@@ -288,10 +359,10 @@ int main(int argc, char* argv[]) {
 
 	// if more than two arguments are in input, call the proper function
 	// commands are in the following format:
-	// ./filesys -D filename delete the named file from the disk
+	// ./filesys -D <filename> delete the named file from the disk
     // ./filesys -L list the files on the disk
-    // ./filesys -M filename create a text file and store it to disk
-    // ./filesys -P filename read the named file and print it to screen
+    // ./filesys -M <filename> create a text file and store it to disk
+    // ./filesys -P <filename> read the named file and print it to screen
 
 	while((switchArgs = getopt(argc, argv, "LPMD")) != -1) {
 		switch(switchArgs) {
